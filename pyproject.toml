@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iplates"
+version = "0.1.0"
+description = "Personal tools for plate reconstruction utilities"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Yebo Liu" }]
+keywords = ["geology", "plate-tectonics", "personal-tools"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+]
+
+[tool.setuptools]
+packages = ["iplates"]
+package-dir = { iplates = "." }
+
+
