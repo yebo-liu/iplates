@@ -348,7 +348,6 @@ def get_plate_active_interval(rot_file_path: str, plate_id: int):
     }
 
 
-
 def _infer_chain_age_for_plate(rot_file_path: str, plate_id: int) -> float | None:
     """
     Prefer an age close to present day if available, otherwise choose the youngest
@@ -426,9 +425,6 @@ def get_plate_chain(rot_file_path: str, plate_id: int, age: float | None = None)
     return {'age': chosen_age, 'chain': chain_ids, 'edges': chain_edges}
 
 
-
-
-
 def print_plate_chain(rot_file_path: str, plate_id: int, age: float | None = None):
     """
     Print a detailed report for a PLATEID including:
@@ -445,23 +441,23 @@ def print_plate_chain(rot_file_path: str, plate_id: int, age: float | None = Non
     oldest = occurrences[-1]
 
     print(f"=== Plate {plate_id} ===")
-    # print(f"File: {rot_file_path}")
     print(f"Active interval: {oldest['age_ma']} Ma -> {youngest['age_ma']} Ma   ")
+    print("")
+
+    chain_info = get_plate_chain(rot_file_path, plate_id, age)
+    if chain_info is None:
+        age_text = f" at {age} Ma" if age is not None else ""
+        print(f"-- Plate chain{age_text} --")
+        print("  Not available.")
+        return
+
+    chain_repr = " -> ".join(f"{pid:03d}" for pid in chain_info['chain'])
+    print(f"-- Plate chain at {chain_info['age']} Ma --")
+    print(f"  {chain_repr}")
     print("")
 
     print("-- Rotation Lines --")
     for occ in occurrences:
         print(f"{occ['raw']} ==== [Line {occ['line_num']}]")
 
-    print("")
-    chain_info = get_plate_chain(rot_file_path, plate_id, age)
-    if chain_info is None:
-        age_text = f" at {age} Ma" if age is not None else ""
-        print(f"-- Fixed-plate chain{age_text} --")
-        print("  Not available.")
-        return
-
-    chain_repr = " -> ".join(f"{pid:03d}" for pid in chain_info['chain'])
-    print(f"-- Fixed-plate chain at {chain_info['age']} Ma --")
-    print(f"  {chain_repr}")
 

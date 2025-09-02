@@ -6,7 +6,7 @@ from typing import Dict, Optional, List, Union
 import pygplates
 
 
-class PlateModel:
+class ReconModel:
     '''
     Minimal JSON-driven plate model loader (no downloading, local files only).
 
@@ -62,7 +62,7 @@ class PlateModel:
         self._rotation_model: Optional[pygplates.RotationModel] = None
 
     @classmethod
-    def from_json(cls, config_path: str) -> "PlateModel":
+    def from_json(cls, config_path: str) -> "ReconModel":
         cfg_path = str(Path(config_path).expanduser())
         with open(cfg_path, 'r', encoding='utf-8') as f:
             cfg = json.load(f)
@@ -154,9 +154,9 @@ class PlateModel:
         return self.feature(key)
 
 
-def load_plate_model_from_json(config_path: str) -> PlateModel:
-    '''Convenience function: build a PlateModel from a JSON config.'''
-    return PlateModel.from_json(config_path)
+def load_plate_model_from_json(config_path: str) -> ReconModel:
+    '''Convenience function: build a ReconModel from a JSON config.'''
+    return ReconModel.from_json(config_path)
 
 
 # Helpers
@@ -191,18 +191,18 @@ def _assert_local_file(path_str: str, label: str, base_dir: Optional[str] = None
         raise FileNotFoundError(f"{label} not found: {p}")
 
 
-class iPlateModel(PlateModel):
+class iPlateModel(ReconModel):
     '''
     Convenience class so you can do:
 
         pm = iPlateModel("/abs/path/model.json")
 
-    Equivalent to PlateModel.from_json(...).
+    Equivalent to ReconModel.from_json(...).
     '''
 
     def __init__(self, config_json_path: str) -> None:
         # Parse JSON once, then call base constructor with resolved fields
-        parsed = PlateModel.from_json(config_json_path)
+        parsed = ReconModel.from_json(config_json_path)
         super().__init__(
             rotation_file=parsed._rotation_file,
             layers=parsed._layer_files,
