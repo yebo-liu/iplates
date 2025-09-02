@@ -55,7 +55,8 @@ def resolve_topos(topo_model,reconstruction_time,write_path):
     pygplates.FeatureCollection(tr_features).write(f'{write_path}/tr_{reconstruction_time}.shp')
     pygplates.FeatureCollection(other_features).write(f'{write_path}/other_{reconstruction_time}.shp')
 
-def plot_boundaries(reconstruction_time,input_path):
+
+def plot_boundaries(fig, reconstruction_time,input_path):
     sz_R_path = f'{input_path}/sz_R_{reconstruction_time}.shp'
     if os.path.isfile(sz_R_path):
         gdf_r = gpd.read_file(sz_R_path)

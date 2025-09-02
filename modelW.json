@@ -1,0 +1,12 @@
+{
+  "BigTime": 1800,
+  "SmallTime": 0,
+  "Rotations": "/Users/282488j/Dropbox/Project/1_Full_Plate/rot_20191028_Rodinia_W.rot",
+  "Layers": {"Topologies": ["/Users/282488j/Dropbox/Project/1_Full_Plate/plate_boundaries/merged_topology_RodiniaW.gpml",
+                            "/Users/282488j/Dropbox/Project/1_Full_Plate/plate_boundaries/merged_boundary_RodiniaW.gpml"],
+              "Coastlines": "/Users/282488j/Dropbox/Project/1_Full_Plate/continent_outlines/continent_outlines_combined_20210610.shp",
+              "COB": "/Users/282488j/Dropbox/Project/1_Full_Plate/FullPlate_Phanerozoic/Continental_crust_Phanerozoic.shp"},
+
+  "TimeDepRasters": {}
+}
+
