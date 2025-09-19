@@ -6,4 +6,9 @@ dist/
 .pytest_cache/
 .venv/
 
+# Data files - don't track large model files
+rot_20191028_Rodinia_W.rot
+modelW.json
+*.log
+*.bak
 
