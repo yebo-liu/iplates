@@ -1,4 +1,6 @@
 import os
+from typing import TYPE_CHECKING, List
+
 try:
     import pygplates
 except ImportError:
@@ -8,6 +10,7 @@ try:
     import geopandas as gpd
 except ImportError:
     gpd = None
+
 
 
 def resolve_topos(topo_model,reconstruction_time,write_path):

@@ -1,89 +1,137 @@
 import os
 import pygplates
+import gplately
 import geopandas as gpd
 import pandas as pd
 from pathlib import Path
 from typing import Union, List
 from shapely.geometry import Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon
 
-def feature_collection_to_gdf(feature_collection, plate_id_col='PLATEID1'):
+def _normalize_feature_collection_input(feature_collection):
+    """
+    Normalize different input types to a list of pygplates.Feature objects.
+    
+    Handles:
+    1. str: path to a file -> load as FeatureCollection
+    2. list of str: list of paths -> load as FeatureCollection (pygplates supports this)
+    3. list of tuples: [(Feature, reconstructed_geoms), ...] -> extract Features and set geometries
+    4. Already a FeatureCollection or list of Features -> return as-is
+    """
+    
+    # Type 1: String path
+    if isinstance(feature_collection, str):
+        try:
+            return pygplates.FeatureCollection(feature_collection)
+        except Exception as e:
+            raise ValueError(f"Cannot load file '{feature_collection}': {e}")
+    
+    # Type 2: List of strings (file paths) - pygplates supports this directly
+    elif isinstance(feature_collection, list) and len(feature_collection) > 0:
+        if all(isinstance(item, str) for item in feature_collection):
+            # All strings - treat as file paths, use first one
+            try:
+                return pygplates.FeatureCollection(feature_collection[0])
+            except Exception as e:
+                raise ValueError(f"Cannot load file '{feature_collection[0]}': {e}")
+        
+        # Type 3: List of tuples [(Feature, reconstructed_geoms), ...]
+        # The code below extract the reconstructed geometries and set them to the features.
+        elif all(isinstance(item, (tuple, list)) and len(item) >= 2 for item in feature_collection):
+            features = []
+            for feature, recon_geoms in feature_collection:
+                # Set reconstructed geometry on the feature
+                if recon_geoms and hasattr(recon_geoms[0], 'get_reconstructed_geometry'):
+                    try:
+                        real_reconstructed_geometry = [geom.get_reconstructed_geometry() for geom in recon_geoms]
+                        feature.set_geometry(real_reconstructed_geometry)
+                    except Exception:
+                        pass  # Skip if geometry setting fails
+                features.append(feature)
+            return features
+        
+        # Type 4: Already a list of Features
+        elif all(hasattr(item, 'get_geometry') for item in feature_collection):
+            return feature_collection
+    
+    # Type 5: Single FeatureCollection object
+    elif hasattr(feature_collection, '__iter__') and hasattr(feature_collection, '__getitem__'):
+        try:
+            return feature_collection
+        except Exception:
+            pass
+    
+    # Type 6: Single Feature
+    elif hasattr(feature_collection, 'get_geometry'):
+        return [feature_collection]
+    
+    raise ValueError(f"Unsupported input type: {type(feature_collection)}. "
+                   f"Expected: str, list of str, list of tuples, FeatureCollection, or list of Features")
+
+def feature_collection_to_gdf(feature_collection):
     """
     Convert a pygplates FeatureCollection to a GeoPandas GeoDataFrame.
     
     Parameters:
     -----------
-    feature_collection : pygplates.FeatureCollection
-        The feature collection to convert
-    plate_id_col : str, optional
-        Name for the plate ID column (default: 'PLATEID1')
-        
+    feature_collection can be:
+        1. a path to a file that can be read by pygplates
+        2. the output of a pygplates.ReconstructSnapshot.get_reconstructed_features()
+
+    based on the type of feature_collection, the code will handle the data differently.
     Returns:
     --------
     geopandas.GeoDataFrame
         A GeoDataFrame with all features and their properties
     """
+    feature_collection = _normalize_feature_collection_input(feature_collection)
+
     features_data = []
-    
     for feature in feature_collection:
+
+        # Get and set feature properties
+        properties = {}
+        
+        # Get shapefile attributes (some gpmls doesn't have these attributes)
+        shapefile_attributes = feature.get_shapefile_attributes()
+        if shapefile_attributes:
+            # shapefile_attributes is a dict, so iterate through it
+            for attr_name, attr_value in shapefile_attributes.items():
+                properties[attr_name] = attr_value
+
+        # when there are no shapefile attributes, we will try to get the gpml properties
+        # TODO: for now, the code only extracts a few essential gpml properties, should extract all and 
+        # map their names to the conventional ones.
+        else:
+            # continue
+            reconstructed_pid = feature.get_reconstruction_plate_id()
+            feature_id = feature.get_feature_id()
+            feature_type = feature.get_feature_type()
+            from_age = feature.get_valid_time()[0]
+            to_age = feature.get_valid_time()[1]
+            feature_name = feature.get_name()
+            geom_import_age = feature.get_geometry_import_time()
+
+            properties['PLATEID1'] = reconstructed_pid
+            properties['FEATURE_ID'] = feature_id
+            properties['GPGIM_TYPE'] = feature_type
+            properties['FROMAGE'] = from_age
+            properties['TOAGE'] = to_age
+            properties['NAME'] = feature_name
+            properties['IMPORT_AGE'] = geom_import_age
+
         # Get geometry
         geometry = feature.get_geometry()
         if geometry is None:
             continue
             
         # Convert pygplates geometry to shapely
-        shapely_geom = pygplates_to_shapely_geometry(geometry)
+        shapely_geom = gplately.geometry.pygplates_to_shapely(geometry)
         if shapely_geom is None:
             continue
-            
-        # Get reconstruction plate ID
-        plate_id = feature.get_reconstruction_plate_id()
-        if plate_id is None:
-            plate_id = 0
-            
-        # Get feature properties
-        properties = {}
-        properties[plate_id_col] = plate_id
-        
-        # Get shapefile attributes
-        for attr_name in feature.get_shapefile_attribute_names():
-            try:
-                attr_value = feature.get_shapefile_attribute(attr_name)
-                if attr_value is not None:
-                    properties[attr_name] = attr_value
-            except:
-                continue
-                
-        # Get GPML properties
-        for prop_name in feature.get_property_names():
-            try:
-                prop = feature.get(prop_name)
-                if prop:
-                    prop_value = prop.get_value()
-                    if hasattr(prop_value, 'get_content'):
-                        properties[str(prop_name)] = prop_value.get_content()
-                    else:
-                        properties[str(prop_name)] = str(prop_value)
-            except:
-                continue
-                
-        # Get feature name
-        feature_name = feature.get_name()
-        if feature_name:
-            properties['NAME'] = feature_name
-            
-        # Get feature type
-        feature_type = feature.get_feature_type()
-        if feature_type:
-            properties['FEATURE_TYPE'] = str(feature_type)
-            
+
+        properties['geometry'] = shapely_geom
         # Add geometry and properties to our data
-        feature_data = properties.copy()
-        feature_data['geometry'] = shapely_geom
-        features_data.append(feature_data)
-    
-    if not features_data:
-        # Return empty GeoDataFrame with proper structure
-        return gpd.GeoDataFrame(columns=[plate_id_col, 'geometry'])
+        features_data.append(properties)
         
     # Create GeoDataFrame
     gdf = gpd.GeoDataFrame(features_data)
@@ -93,83 +141,6 @@ def feature_collection_to_gdf(feature_collection, plate_id_col='PLATEID1'):
     
     return gdf
 
-def pygplates_to_shapely_geometry(geometry):
-    """
-    Convert a pygplates geometry to a shapely geometry.
-    """
-    if isinstance(geometry, pygplates.PointOnSphere):
-        lat, lon = geometry.to_lat_lon()
-        return Point(lon, lat)  # shapely uses (x, y) = (lon, lat)
-        
-    elif isinstance(geometry, pygplates.MultiPointOnSphere):
-        points = []
-        for pt in geometry:
-            lat, lon = pt.to_lat_lon()
-            points.append(Point(lon, lat))
-        return MultiPoint(points)
-        
-    elif isinstance(geometry, pygplates.PolylineOnSphere):
-        coords = []
-        for pt in geometry:
-            lat, lon = pt.to_lat_lon()
-            coords.append((lon, lat))
-        return LineString(coords)
-        
-    elif isinstance(geometry, pygplates.MultiPolylineOnSphere):
-        lines = []
-        for line in geometry:
-            coords = []
-            for pt in line:
-                lat, lon = pt.to_lat_lon()
-                coords.append((lon, lat))
-            lines.append(LineString(coords))
-        return MultiLineString(lines)
-        
-    elif isinstance(geometry, pygplates.PolygonOnSphere):
-        coords = []
-        for pt in geometry:
-            lat, lon = pt.to_lat_lon()
-            coords.append((lon, lat))
-        return Polygon(coords)
-        
-    elif isinstance(geometry, pygplates.MultiPolygonOnSphere):
-        polygons = []
-        for poly in geometry:
-            coords = []
-            for pt in poly:
-                lat, lon = pt.to_lat_lon()
-                coords.append((lon, lat))
-            polygons.append(Polygon(coords))
-        return MultiPolygon(polygons)
-        
-    else:
-        return None
-
-def shapely_to_pygplates_geometry(geometry):
-    """
-    Convert a shapely geometry to a pygplates geometry.
-    """
-    if isinstance(geometry, Point):
-        return pygplates.PointOnSphere(geometry.y, geometry.x)  # lat, lon
-    elif isinstance(geometry, MultiPoint):
-        return pygplates.MultiPointOnSphere([pygplates.PointOnSphere(pt.y, pt.x) for pt in geometry.geoms])
-    elif isinstance(geometry, LineString):
-        return pygplates.PolylineOnSphere([(pt[1], pt[0]) for pt in geometry.coords])  # (lat, lon)
-    elif isinstance(geometry, MultiLineString):
-        return pygplates.MultiPolylineOnSphere([
-            pygplates.PolylineOnSphere([(pt[1], pt[0]) for pt in line.coords])
-            for line in geometry.geoms
-        ])
-    elif isinstance(geometry, Polygon):
-        # Only use exterior ring for now
-        return pygplates.PolygonOnSphere([(pt[1], pt[0]) for pt in geometry.exterior.coords])
-    elif isinstance(geometry, MultiPolygon):
-        return pygplates.MultiPolygonOnSphere([
-            pygplates.PolygonOnSphere([(pt[1], pt[0]) for pt in poly.exterior.coords])
-            for poly in geometry.geoms
-        ])
-    else:
-        return None
 
 def gdf_to_feature_collection(
     gdf, 
@@ -178,7 +149,7 @@ def gdf_to_feature_collection(
 ):
     features = []
     for idx, row in gdf.iterrows():
-        geometry = shapely_to_pygplates_geometry(row.geometry)
+        geometry = gplately.geometry.shapely_to_pygplates(row.geometry)
         if geometry is None:
             print(f"Warning: Unsupported geometry at index {idx}, skipping.")
             continue
@@ -201,6 +172,7 @@ def gdf_to_feature_collection(
             feature.set_reconstruction_plate_id(plate_id)
 
         # Add properties as feature properties
+        # TODO: this doesn't really work, perhaps because set_shapefile_attribute doesn't work with gpml?
         for col in gdf.columns:
             if col not in ['geometry', reconstruction_plate_id_col]:
                 value = row[col]
@@ -457,7 +429,87 @@ def print_plate_chain(rot_file_path: str, plate_id: int, age: float | None = Non
     print("")
 
     print("-- Rotation Lines --")
+    print(f'Line Number: {occurrences[0]["line_num"]} - {occurrences[-1]["line_num"]}')
     for occ in occurrences:
-        print(f"{occ['raw']} ==== [Line {occ['line_num']}]")
+        print(f"{occ['raw']}")
 
+def reanchor_plate(
+    rot_file_path: str,
+    moving_plate_id: int,
+    new_fixed_plate_id: int,
+    ages: List[float] | None = None,
+    wrap_angle_on_path_error: bool = False,
+    fmt_age: str = ".1f",
+    fmt_val: str = ".4f",
+):
+    """
+    Recompute and PRINT rotation lines for a moving plate relative to a different fixed plate (anchor),
+    following your previous workflow using `pygplates.RotationModel.get_rotation`.
 
+    For each selected age, computes the finite rotation of `moving_plate_id` relative to
+    `new_fixed_plate_id` and prints standardized lines. No files are written.
+
+    Parameters
+    ----------
+    rot_file_path : str
+        Path to source .rot file (only used to initialize the rotation model).
+    moving_plate_id : int
+        Plate whose reference frame should change.
+    new_fixed_plate_id : int
+        The new anchor (fixed plate) to reference against.
+    ages : list[float] | None
+        If provided, compute lines for these ages. If None, use all ages present for the plate
+        in the file (via find_plate_occurrences_in_rot_file).
+    wrap_angle_on_path_error : bool
+        Apply the angle wrapping you used (±360 shift based on sign).
+    fmt_age : str
+        Format spec for the age field (default .1f).
+    fmt_val : str
+        Format spec for lat/lon/angle (default .4f).
+
+    Returns
+    -------
+    list[str]
+        The printed lines (also returned for convenience).
+    """
+    # Gather target ages
+    if ages is None:
+        occ = find_plate_occurrences_in_rot_file(rot_file_path, moving_plate_id)
+        if not occ:
+            return {
+                'plate_id': int(moving_plate_id),
+                'new_fixed_plate_id': int(new_fixed_plate_id),
+                'num_target_ages': 0,
+                'changed_lines': 0,
+                'output_file': None,
+                'preview': [],
+            }
+        ages = [o['age_ma'] for o in occ]
+
+    # Load rotation model once
+    rot_model = pygplates.RotationModel(rot_file_path)
+
+    # Compute new lines and print
+    lines_out: List[str] = []
+    for age in ages:
+        finite_rotation = rot_model.get_rotation(age, moving_plate_id, anchor_plate_id=new_fixed_plate_id)
+        pole_lat, pole_lon, pole_angle = finite_rotation.get_lat_lon_euler_pole_and_angle_degrees()
+
+        if wrap_angle_on_path_error:
+            # Reflect the angle by ±360 like your previous snippet
+            if pole_angle >= 0:
+                pole_angle = pole_angle - 360.0
+            else:
+                pole_angle = pole_angle + 360.0
+
+        # Format similar to your prints, keeping extra spaces between numeric columns
+        # Example: "305 380.0  12.3456  123.4567  -45.6789  302  !"
+        age_txt = format(age, fmt_age)
+        lat_txt = format(pole_lat, fmt_val)
+        lon_txt = format(pole_lon, fmt_val)
+        ang_txt = format(pole_angle, fmt_val)
+        line = f"{int(moving_plate_id)} {age_txt}  {lat_txt}  {lon_txt}  {ang_txt}  {int(new_fixed_plate_id):03d}  !"
+        print(line)
+        lines_out.append(line)
+
+    return lines_out

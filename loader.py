@@ -131,7 +131,7 @@ class ReconModel:
                 return key
         return None
 
-    def get_rotation_file(self) -> str:
+    def get_rotation_model(self) -> str:
         """Return the resolved path to the rotations .rot file."""
         return self._rotation_file
 
@@ -212,4 +212,6 @@ class iPlateModel(ReconModel):
             base_dir=parsed._base_dir,
         )
 
-
+def loadW() -> iPlateModel:
+    '''Quick loader for the W model using hardcoded path.'''
+    return iPlateModel("/Users/282488j/Dropbox/Project/1_Full_Plate/modelW.json")
